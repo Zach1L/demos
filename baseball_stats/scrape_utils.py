@@ -1,5 +1,6 @@
 import pandas as pd
 from bs4 import BeautifulSoup
+import logging
 
 def actual_year( year_str:str ) -> bool:
     """
@@ -16,7 +17,10 @@ def single_major_team_filter( team_str:str ) -> bool:
     """
     Filters out Minor League and TOT columns
     Needs to explicity return True or False
-    """   
+    """  
+    if not type(team_str) == str:
+        logging.warning(f'Team String {team_str} detected and ignored')
+        return False
     if ('-min' in team_str) or ('TOT' in team_str):
         return False
     return True
@@ -32,7 +36,13 @@ def sanitize_df( df: pd.DataFrame, human_readable_name: str, unique_name: str, c
     good_rows_mask = df.apply(lambda x: actual_year(x.Year), axis=1)
     df = df[good_rows_mask]
     good_rows_mask = df.apply(lambda x: single_major_team_filter(x.Tm), axis=1)
-    return df[good_rows_mask]
+    
+    if 'ERA' not in columns_to_drop:
+        df = df[good_rows_mask]
+        int_columns = ['Year', 'Age', 'G', 'PA', 'AB','R','H','2B','3B','HR','RBI','SB','CS','BB','SO','GDP','HBP','SH','SF','IBB']
+        df[int_columns] = df[int_columns].astype('uint32')
+    # TODO cast stats for pitchers
+    return df
 
 def get_positions_from_soup( soup: BeautifulSoup ):
     """

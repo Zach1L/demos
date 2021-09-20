@@ -4,7 +4,8 @@ from bs4 import BeautifulSoup
 import urllib.request
 import scrape_utils
 import logging
-
+import bb_stat_utils
+import concurrent.futures
 
 class BaseBallStatsScraper():
 
@@ -13,16 +14,25 @@ class BaseBallStatsScraper():
         self.batting_df_list = []
         self.pitching_df_list = []
 
-        self.get_active_players(ords=range(97, 99))
+        self.get_active_players()
 
-        for i, player_url in enumerate(self.player_urls):
-            if i > 20:
-                break
-            logging.info(f'{i} of {len(self.player_urls)}')
-            self.scrape_player(player_url)
+        self.parallel_downloads()
 
         self.pitching_df_raw = pd.concat(self.pitching_df_list)
         self.batting_df_raw = pd.concat(self.batting_df_list)
+    
+    def parallel_downloads(self):
+        """
+        Download / Sanatize Data in Parallel 
+        """
+        with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+            results = executor.map(self.scrape_player, self.player_urls)
+
+        for _dict in results:
+            if 'p' in _dict.keys():
+                self.pitching_df_list.append(_dict['p'])
+            if 'b' in _dict.keys():
+                self.batting_df_list.append(_dict['b'])
 
     def get_active_players(self, ords: range = range(97, 123)):
         """
@@ -45,34 +55,34 @@ class BaseBallStatsScraper():
             soup = BeautifulSoup(page, 'html.parser')
 
         # Get the Player Name from the title of the Webpage
-        human_readable_name = soup.find('title').string.split('Stats')[
-            0].replace(' ', '')
+        human_readable_name = soup.find('title').string.split('Stats')[0]
         unique_name = player_url.split('/')[-1][:-6]
         logging.info(human_readable_name)
 
         # Get the Players Positions
         positions = scrape_utils.get_positions_from_soup(soup)
 
+        return_packet = {}
         batting_table = soup.find('table', id='batting_standard')
         if batting_table:
             base_df = pd.read_html(str(batting_table))[0]
-            columns_to_drop = ['OBP', 'SLG', 'OPS', 'OPS+', 'TB']
-            self.batting_df_list.append(scrape_utils.sanitize_df(
-                base_df, human_readable_name, unique_name, columns_to_drop))
-
+            columns_to_drop = ['OBP', 'SLG', 'OPS', 'BA', 'OPS+', 'TB']
+            return_packet['b'] = scrape_utils.sanitize_df(
+                base_df, human_readable_name, unique_name, columns_to_drop)
         pitching_table = soup.find('table', id='pitching_standard')
         if pitching_table:
             base_df = pd.read_html(str(pitching_table))[0]
             columns_to_drop = ['W-L%', 'ERA', 'ERA+', 'FIP',
                                'WHIP', 'H9', 'HR9', 'BB9', 'SO9', 'SO/W']
-            self.pitching_df_list.append(scrape_utils.sanitize_df(
-                base_df, human_readable_name, unique_name, columns_to_drop))
-    
-    def compile_stats_year(self, year='2021'):
+            return_packet['p'] = scrape_utils.sanitize_df(
+                base_df, human_readable_name, unique_name, columns_to_drop)
+        return return_packet
+
+    def compile_stats_year(self, year=2021):
         # Filter to a Given Year
 
-        for b_or_p, df in zip(['b', 'p'], [self.batting_df_raw, self.pitching_df_raw])
-            mask = self.batting_df_raw['Year'] == year
+        for b_or_p, df in zip(['b', 'p'], [self.batting_df_raw, self.pitching_df_raw]):
+            mask = df['Year'] == year
 
             # Sum the Player Across Multiple Teams (Accounts for Trades)
             # Create A Dictionary to Denote Items that should not be summed
@@ -85,7 +95,33 @@ class BaseBallStatsScraper():
             
             if b_or_p == 'b':
                 self.batting_df = self.batting_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
-                # TODO Add derived batting stats here
+                bb_stat_utils.calc_SLUG_TOT(self.batting_df)
+                self.topsis()
             else:
-                self.pitching_df = self.batting_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
+                self.pitching_df = self.pitching_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
                 # TODO Add derived pitching stats here
+    
+    
+
+    def topsis(self):
+        """
+        Modified implement ation of https://en.wikipedia.org/wiki/TOPSIS
+        """
+        cats = ['HR', 'RBI', 'OB_TOT', 'SB', 'SLUG_TOT']
+        
+        # Normal The Catagories of Interest
+        rss = (self.batting_df[cats] ** 2).sum(axis=0) ** 0.5
+        cats_norm = self.batting_df[cats] / rss
+        
+        # The Ideal is the Best Player in Each Catagory
+        ideals = cats_norm.max(axis=0)
+
+        # Determine Weights Avoid Overweighting more common (SB much more common than HR )
+        ideal_total_points = ideals.sum(axis=0)
+        weights = 1 / (cats_norm.max() / ideal_total_points) #Arbitrary Units
+        
+        # Weighted Distance From Ideals
+        distance_from_ideals = ((weights *(cats_norm - ideals)) ** 2).sum(axis=1) ** 0.5
+        self.batting_df['distance_from_ideals'] = distance_from_ideals
+        self.batting_df.sort_values('distance_from_ideals', ascending=True, inplace=True)
+        self.batting_df.to_csv('batter_rankings.csv')
