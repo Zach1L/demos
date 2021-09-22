@@ -61,6 +61,7 @@ class BaseBallStatsScraper():
 
         # Get the Players Positions
         positions = scrape_utils.get_positions_from_soup(soup)
+        # TODO A column for 'C', '1B', '2B', '3B', 'SS', 'OF', 'DH', 'P'
 
         return_packet = {}
         batting_table = soup.find('table', id='batting_standard')
@@ -88,40 +89,26 @@ class BaseBallStatsScraper():
             # Create A Dictionary to Denote Items that should not be summed
             dtype_sum_dict = {}
             for col in df.columns:
-                if df[col].dtype == np.float64:
+                if df[col].dtype != object:
                     dtype_sum_dict[col] = sum
                 else:
-                    dtype_sum_dict[col] = 'first'
+                    dtype_sum_dict[col] = 'last'
             
             if b_or_p == 'b':
+                # TODO Verify this with Trea
                 self.batting_df = self.batting_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
                 bb_stat_utils.calc_SLUG_TOT(self.batting_df)
-                self.topsis()
+                cats = ['HR', 'RBI', 'OB_TOT', 'SB', 'SLUG_TOT']
+                cats_power = {key: 1.0 for key in cats}
+                bb_stat_utils.topsis(df=self.batting_df, cats=cats, cats_power=cats_power,  csv_name='bat_rank.csv')
+                
             else:
+                # TODO Verify this with Max Scherzer
                 self.pitching_df = self.pitching_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
-                # TODO Add derived pitching stats here
-    
-    
+                bb_stat_utils.calc_WHIP_TOT(self.pitching_df)
+                cats = ['ER', 'QS_STAND', 'SV', 'WH_TOT', 'SO', 'IP']
+                cats_power = {'ER': -1.0, 'QS_STAND': 1.0, 'SV': 1.0, 'WH_TOT': -1.0, 'SO': 1.0, 'IP' : 1.0}
+                bb_stat_utils.topsis(df=self.pitching_df, cats=cats, cats_power=cats_power, csv_name='pitch_rank.csv')
 
-    def topsis(self):
-        """
-        Modified implement ation of https://en.wikipedia.org/wiki/TOPSIS
-        """
-        cats = ['HR', 'RBI', 'OB_TOT', 'SB', 'SLUG_TOT']
-        
-        # Normal The Catagories of Interest
-        rss = (self.batting_df[cats] ** 2).sum(axis=0) ** 0.5
-        cats_norm = self.batting_df[cats] / rss
-        
-        # The Ideal is the Best Player in Each Catagory
-        ideals = cats_norm.max(axis=0)
 
-        # Determine Weights Avoid Overweighting more common (SB much more common than HR )
-        ideal_total_points = ideals.sum(axis=0)
-        weights = 1 / (cats_norm.max() / ideal_total_points) #Arbitrary Units
-        
-        # Weighted Distance From Ideals
-        distance_from_ideals = ((weights *(cats_norm - ideals)) ** 2).sum(axis=1) ** 0.5
-        self.batting_df['distance_from_ideals'] = distance_from_ideals
-        self.batting_df.sort_values('distance_from_ideals', ascending=True, inplace=True)
-        self.batting_df.to_csv('batter_rankings.csv')
+

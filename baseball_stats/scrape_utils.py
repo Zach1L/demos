@@ -36,12 +36,18 @@ def sanitize_df( df: pd.DataFrame, human_readable_name: str, unique_name: str, c
     good_rows_mask = df.apply(lambda x: actual_year(x.Year), axis=1)
     df = df[good_rows_mask]
     good_rows_mask = df.apply(lambda x: single_major_team_filter(x.Tm), axis=1)
-    
+    df = df[good_rows_mask]
+
+    # Need to Ensure Pandas treats raw stats as integers, or ( floats when required pitching only)
     if 'ERA' not in columns_to_drop:
-        df = df[good_rows_mask]
         int_columns = ['Year', 'Age', 'G', 'PA', 'AB','R','H','2B','3B','HR','RBI','SB','CS','BB','SO','GDP','HBP','SH','SF','IBB']
-        df[int_columns] = df[int_columns].astype('uint32')
-    # TODO cast stats for pitchers
+        df[int_columns] = df[int_columns].astype('int32')
+    else:
+        int_columns = ['Year', 'Age', 'W' , 'L' , 'G' , 'GS' , 'GF', 'CG' ,'SHO', 'SV', 'H','R','ER','HR','BB','IBB','SO','HBP','BK','WP','BF'] 
+        float_columns = ['IP']
+        df[int_columns] = df[int_columns].astype('int32')
+        df[float_columns] = df[float_columns].astype('float')
+
     return df
 
 def get_positions_from_soup( soup: BeautifulSoup ):
