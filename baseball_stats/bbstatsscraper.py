@@ -2,37 +2,110 @@ import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 import urllib.request
-import scrape_utils
 import logging
-import bb_stat_utils
 import concurrent.futures
 
-class BaseBallStatsScraper():
+def actual_year( year_str:str ) -> bool:
+    """
+    Filter out Garbage Bottom Row of BB Reference Table
+    Needs to explicity return True or False
+    """
+    try:
+        int(year_str)
+        return True
+    except ValueError:
+        return False
 
-    def __init__(self) -> None:
+def single_major_team_filter( team_str:str ) -> bool:
+    """
+    Filters out Minor League and TOT columns
+    Needs to explicity return True or False
+    """  
+    if not type(team_str) == str:
+        logging.warning(f'Team String {team_str} detected and ignored')
+        return False
+    if ('-min' in team_str) or ('TOT' in team_str):
+        return False
+    return True
+
+
+def sanitize_df( df: pd.DataFrame, human_readable_name: str, unique_name: str, columns_to_drop: list) -> pd.DataFrame:
+    """
+    Filter the Aquired data frame to the useful stats
+    """
+    df.drop(columns_to_drop, inplace=True, axis=1)
+    df['hr_name'] = human_readable_name
+    df['un_name'] = unique_name
+    good_rows_mask = df.apply(lambda x: actual_year(x.Year), axis=1)
+    df = df[good_rows_mask]
+    good_rows_mask = df.apply(lambda x: single_major_team_filter(x.Tm), axis=1)
+    df = df[good_rows_mask]
+
+    # Need to Ensure Pandas treats raw stats as integers, or ( floats when required pitching only)
+    if 'ERA' not in columns_to_drop:
+        int_columns = ['Year', 'Age', 'G', 'PA', 'AB','R','H','2B','3B','HR','RBI','SB','CS','BB','SO','GDP','HBP','SH','SF','IBB']
+        df[int_columns] = df[int_columns].astype('int32')
+    else:
+        int_columns = ['Year', 'Age', 'W' , 'L' , 'G' , 'GS' , 'GF', 'CG' ,'SHO', 'SV', 'H','R','ER','HR','BB','IBB','SO','HBP','BK','WP','BF'] 
+        float_columns = ['IP']
+        df[int_columns] = df[int_columns].astype('int32')
+        df[float_columns] = df[float_columns].astype('float')
+
+    return df
+
+def get_positions_from_soup( soup: BeautifulSoup ):
+    """
+    Get the Player Positions
+    Not stored in a very computer-readable friendly way on the Web
+    """
+    strongs = soup.find_all('strong', limit=5)
+    for i in strongs:
+        text = i.find_parent().get_text()
+        if 'Position' in text:
+            text = text.split(':')[-1]
+            text = text.replace(' ','').replace('\n', '')
+            text = text.replace(',', 'and')
+            return text.split('and')
+
+class BaseBallReferenceScraper( ):
+    """
+    Use Beautiful Soup to Scrape yearly data from 
+    baseball-reference.com
+    For Educational Purposes Only
+    """
+    def __init__(self, player_name_ords: range = range(97, 123)) -> None:
         self.player_urls = []
         self.batting_df_list = []
         self.pitching_df_list = []
 
-        self.get_active_players()
+        self.get_active_players(player_name_ords)
 
         self.parallel_downloads()
 
         self.pitching_df_raw = pd.concat(self.pitching_df_list)
         self.batting_df_raw = pd.concat(self.batting_df_list)
     
+
+
     def parallel_downloads(self):
         """
         Download / Sanatize Data in Parallel 
         """
         with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
-            results = executor.map(self.scrape_player, self.player_urls)
-
-        for _dict in results:
-            if 'p' in _dict.keys():
-                self.pitching_df_list.append(_dict['p'])
-            if 'b' in _dict.keys():
-                self.batting_df_list.append(_dict['b'])
+            # Start the load operations and mark each future with its URL
+            future_to_url = {executor.submit(self.scrape_player, url): url for url in self.player_urls}
+            for future in concurrent.futures.as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    _dict = future.result()
+                    if 'p' in _dict.keys():
+                        self.pitching_df_list.append(_dict['p'])
+                    if 'b' in _dict.keys():
+                        self.batting_df_list.append(_dict['b'])
+                except Exception as exc:
+                    logging.warn('%r generated an exception: %s' % (url, exc))
+                else:
+                    logging.debug(f'delogged dict {url}')
 
     def get_active_players(self, ords: range = range(97, 123)):
         """
@@ -51,31 +124,35 @@ class BaseBallStatsScraper():
         """
         Given a player URL scrape and santize statistical data to a dataframe
         """
-        with urllib.request.urlopen(player_url) as page:
-            soup = BeautifulSoup(page, 'html.parser')
-
+        try:
+            with urllib.request.urlopen(player_url, timeout=1.0) as page:
+                soup = BeautifulSoup(page, 'html.parser')
+        except: 
+            logging.warn('Error on: ' + player_url)
+            return {}
+        
         # Get the Player Name from the title of the Webpage
         human_readable_name = soup.find('title').string.split('Stats')[0]
         unique_name = player_url.split('/')[-1][:-6]
         logging.info(human_readable_name)
 
         # Get the Players Positions
-        positions = scrape_utils.get_positions_from_soup(soup)
-        # TODO A column for 'C', '1B', '2B', '3B', 'SS', 'OF', 'DH', 'P'
+        positions = get_positions_from_soup(soup)
 
+        # TODO A column for 'C', '1B', '2B', '3B', 'SS', 'OF', 'DH', 'P'
         return_packet = {}
         batting_table = soup.find('table', id='batting_standard')
         if batting_table:
             base_df = pd.read_html(str(batting_table))[0]
             columns_to_drop = ['OBP', 'SLG', 'OPS', 'BA', 'OPS+', 'TB']
-            return_packet['b'] = scrape_utils.sanitize_df(
+            return_packet['b'] = sanitize_df(
                 base_df, human_readable_name, unique_name, columns_to_drop)
         pitching_table = soup.find('table', id='pitching_standard')
         if pitching_table:
             base_df = pd.read_html(str(pitching_table))[0]
             columns_to_drop = ['W-L%', 'ERA', 'ERA+', 'FIP',
                                'WHIP', 'H9', 'HR9', 'BB9', 'SO9', 'SO/W']
-            return_packet['p'] = scrape_utils.sanitize_df(
+            return_packet['p'] = sanitize_df(
                 base_df, human_readable_name, unique_name, columns_to_drop)
         return return_packet
 
@@ -83,6 +160,7 @@ class BaseBallStatsScraper():
         # Filter to a Given Year
 
         for b_or_p, df in zip(['b', 'p'], [self.batting_df_raw, self.pitching_df_raw]):
+            
             mask = df['Year'] == year
 
             # Sum the Player Across Multiple Teams (Accounts for Trades)
@@ -95,20 +173,8 @@ class BaseBallStatsScraper():
                     dtype_sum_dict[col] = 'last'
             
             if b_or_p == 'b':
-                # TODO Verify this with Trea
                 self.batting_df = self.batting_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
-                bb_stat_utils.calc_SLUG_TOT(self.batting_df)
-                cats = ['HR', 'RBI', 'OB_TOT', 'SB', 'SLUG_TOT']
-                cats_power = {key: 1.0 for key in cats}
-                bb_stat_utils.topsis(df=self.batting_df, cats=cats, cats_power=cats_power,  csv_name='bat_rank.csv')
-                
             else:
-                # TODO Verify this with Max Scherzer
                 self.pitching_df = self.pitching_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
-                bb_stat_utils.calc_WHIP_TOT(self.pitching_df)
-                cats = ['ER', 'QS_STAND', 'SV', 'WH_TOT', 'SO', 'IP']
-                cats_power = {'ER': -1.0, 'QS_STAND': 1.0, 'SV': 1.0, 'WH_TOT': -1.0, 'SO': 1.0, 'IP' : 1.0}
-                bb_stat_utils.topsis(df=self.pitching_df, cats=cats, cats_power=cats_power, csv_name='pitch_rank.csv')
-
 
 
