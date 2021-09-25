@@ -1,9 +1,8 @@
-import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 import urllib.request
 import logging
-import concurrent.futures
+import downloader
 
 def actual_year( year_str:str ) -> bool:
     """
@@ -75,37 +74,13 @@ class BaseBallReferenceScraper( ):
     """
     def __init__(self, player_name_ords: range = range(97, 123)) -> None:
         self.player_urls = []
-        self.batting_df_list = []
-        self.pitching_df_list = []
-
         self.get_active_players(player_name_ords)
 
-        self.parallel_downloads()
+        pitching_df_list,batting_df_list =  downloader.parallel_downloads(self.scrape_player, self.player_urls)
 
-        self.pitching_df_raw = pd.concat(self.pitching_df_list)
-        self.batting_df_raw = pd.concat(self.batting_df_list)
+        self.pitching_df_raw = pd.concat(pitching_df_list)
+        self.batting_df_raw = pd.concat(batting_df_list)
     
-
-
-    def parallel_downloads(self):
-        """
-        Download / Sanatize Data in Parallel 
-        """
-        with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
-            # Start the load operations and mark each future with its URL
-            future_to_url = {executor.submit(self.scrape_player, url): url for url in self.player_urls}
-            for future in concurrent.futures.as_completed(future_to_url):
-                url = future_to_url[future]
-                try:
-                    _dict = future.result()
-                    if 'p' in _dict.keys():
-                        self.pitching_df_list.append(_dict['p'])
-                    if 'b' in _dict.keys():
-                        self.batting_df_list.append(_dict['b'])
-                except Exception as exc:
-                    logging.warn('%r generated an exception: %s' % (url, exc))
-                else:
-                    logging.debug(f'delogged dict {url}')
 
     def get_active_players(self, ords: range = range(97, 123)):
         """

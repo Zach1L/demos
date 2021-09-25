@@ -1,9 +1,9 @@
-import bbstatsscraper
+import baseball_ref
 import logging
 import bb_stat_utils
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.INFO)
-b = bbstatsscraper.BaseBallReferenceScraper()
+b = baseball_ref.BaseBallReferenceScraper()
 b.compile_stats_year()
 b.batting_df.to_csv('all_batting.csv')
 b.pitching_df.to_csv('all_pitching.csv')
