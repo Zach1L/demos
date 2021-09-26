@@ -1,4 +1,5 @@
 import pandas as pd
+import scipy.stats
 
 def calc_SLUG_TOT(df: pd.DataFrame):
 	"""
@@ -43,5 +44,39 @@ def topsis(df: pd.DataFrame, cats: list, cats_power: dict, csv_name: str):
 	distance_from_ideals = ((weights *(cats_norm - ideals)) ** 2).sum(axis=1) ** 0.5
 	df['distance_from_ideals'] = distance_from_ideals
 	df.sort_values('distance_from_ideals', ascending=True, inplace=True)
-	
+
 	df.to_csv(csv_name)
+
+def ANOVA(df: pd.DataFrame, group: str, metric: str):
+	"""
+	https://en.wikipedia.org/wiki/One-way_analysis_of_variance
+	"""
+	m_ingroup = df.groupby(group).mean()[metric]
+	count_ingroup = df.groupby(group).count()[metric]
+	m_overall = df[metric].mean()
+
+	# Between Groups sum square of differences
+	SB = (count_ingroup * (m_ingroup - m_overall) ** 2).sum()
+
+	# Between Group Degree of Freedom
+	FB = len(m_ingroup) - 1
+
+	# Between Group Mean Square Value
+	MSB =  SB / FB
+
+	# Within Group Sum of Squares
+	SW =  sum([((df.loc[df[group] == i, metric] - m_ingroup[i]) ** 2).sum() for i in df[group].unique()])
+
+	# Within Group DoF
+	FW = df[group].nunique() * (count_ingroup.median() - 1)
+
+	#Mean square within  gorup
+	MSW = SW / FW
+
+	Fstat = MSB / MSW
+
+	Fcrit = scipy.stats.f.ppf(0.95, FB, FW)
+	if Fstat > Fcrit:
+		print(f'REJECT null hypothesis that all {group} produce the same response in {metric}')
+	else:
+		print(f'ACCEPT null hypothesis that all {group} produce the same response in {metric}')
