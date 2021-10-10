@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import time
 import sqlite3 as sql
-
+import multiprocessing 
 # Selenium Imports
 from selenium import webdriver
 from selenium.common import exceptions
@@ -22,7 +22,7 @@ from selenium.webdriver.support import expected_conditions as EC
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.INFO)
 
 # Init SQLLite conenction
-conn = sql.connect('2021_Baseball-.db')
+conn = sql.connect('2021_Baseball.db')
 
 class waiter():
     def __init__(self) -> None:
@@ -94,15 +94,17 @@ def get_all_player_urls(stat_type: str, season: int):
         player_id = row.a.get('href').split('=')[-2].split('&')[0]
         if  stat_type == 'bat' and position_str == 'position=P':
             position_str += 'B' # Get Pitcher's Batting
+        if stat_type != 'bat':
+            position_str = 'position=P'
         daily_urls.append(f"https://www.fangraphs.com/players/{player_dashed}/{player_id}/game-log?type=1&gds=&gde=&season={season}&{position_str}")
         player_names.append(player_dashed)
     return daily_urls, player_names
 
 
-def scrape_pitching_data(season, sql_table=None):
+def scrape_pitching_data(season, sql_table='pit'):
     return scrape_data(get_pitching_urls, season, sql_table=sql_table)
 
-def scrape_batting_data(season, sql_table=None):
+def scrape_batting_data(season, sql_table='bat'):
     return scrape_data(get_batting_urls, season, sql_table=sql_table)  
 
 
@@ -149,7 +151,7 @@ def scrape_data(url_provider, season: int, sql_table: str):
             df = df[np.logical_not(header_mask)]
             df['name'] = player_name
             df['id'] = daily_url.split('/')[5]
-
+            # TODO Provide a unique ID for each row in the DB. must account for double header
             if sql_table:    
                 df.to_sql(sql_table, conn, if_exists='append')
             else:
@@ -160,6 +162,11 @@ def scrape_data(url_provider, season: int, sql_table: str):
     d.close()
 
 if __name__ == "__main__":
-    scrape_batting_data(season=2021, sql_table='bat')
-    scrape_pitching_data(season=2021, sql_table='pit')
-    conn.close()
+    p1 = multiprocessing.Process(target=scrape_pitching_data, args=(2021, ))
+    p2 = multiprocessing.Process(target=scrape_batting_data, args=(2021, ))
+  
+    p1.start()
+    p2.start()
+  
+    p1.join()
+    p2.join()
