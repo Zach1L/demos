@@ -161,7 +161,10 @@ def scrape_data(url_provider, season: int, sql_table: str):
 
     d.close()
 
-if __name__ == "__main__":
+def generate_sqllite_tables():
+    """
+    Populates the 2021_Baseball.db SQLLITE DB
+    """
     p1 = multiprocessing.Process(target=scrape_pitching_data, args=(2021, ))
     p2 = multiprocessing.Process(target=scrape_batting_data, args=(2021, ))
   
@@ -170,3 +173,6 @@ if __name__ == "__main__":
   
     p1.join()
     p2.join()
+
+if __name__ == "__main__":
+    generate_sqllite_tables()

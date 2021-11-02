@@ -20,6 +20,10 @@ def calc_WHIP_TOT(df: pd.DataFrame):
 	df['QS_STAND'] = df['GS'] - df['L']
 	df.loc[df['QS_STAND'] < 0, 'QS_STAND'] = 0
 
+def IP_basis_conversion(ip: str):
+    ip = float(ip)
+    fractional_ip = (ip - int(ip)) / 0.3
+    return int(ip) + fractional_ip
 
 def topsis(df: pd.DataFrame, cats: list, cats_power: dict, csv_name: str):
 	"""
