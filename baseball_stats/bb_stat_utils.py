@@ -49,7 +49,9 @@ def topsis(df: pd.DataFrame, cats: list, cats_power: dict, csv_name: str):
 	df['distance_from_ideals'] = distance_from_ideals
 	df.sort_values('distance_from_ideals', ascending=True, inplace=True)
 
-	df.to_csv(csv_name)
+	if csv_name:
+		df.to_csv(csv_name)
+	return df.copy()
 
 def ANOVA(df: pd.DataFrame, group: str, metric: str):
 	"""
