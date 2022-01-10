@@ -12,7 +12,8 @@ class link_physical_properties():
         self.unit_length = unit_length # l
         self.diameter = diamter # m 
         self.density = density # kg/m^3
-        self.mass = self.unit_length * (self.diameter ** 2)  * np. pi / 4
+        self.cross_sectional_area = (self.diameter ** 2)  * np. pi / 4
+        self.mass = self.unit_length * self.cross_sectional_area * self.density
 
 class elevator_element():
     
