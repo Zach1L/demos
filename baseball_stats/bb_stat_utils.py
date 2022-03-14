@@ -25,7 +25,7 @@ def IP_basis_conversion(ip: str):
     fractional_ip = (ip - int(ip)) / 0.3
     return int(ip) + fractional_ip
 
-def topsis(df: pd.DataFrame, cats: list, cats_power: dict, csv_name: str):
+def topsis(df: pd.DataFrame, cats: list, cats_power: dict, csv_name: str) -> pd.DataFrame:
 	"""
 	Modified implement ation of https://en.wikipedia.org/wiki/TOPSIS
 	"""
@@ -52,6 +52,18 @@ def topsis(df: pd.DataFrame, cats: list, cats_power: dict, csv_name: str):
 	if csv_name:
 		df.to_csv(csv_name)
 	return df.copy()
+
+def determine_pick_value(score_df: pd.DataFrame) -> None:
+	"""
+	Consumes a dataframes as outputted by the topsis method.
+	Adds improvement and pick_value columns to the dataframe
+	"""
+	# The Propotional Difference Between this and thenext best player in this catagory
+	score_df['improvement'] = -1 * score_df['distance_from_ideals'].diff(periods=-1)
+	
+	# Pick Value formula: STD above the mean 'improvement' (as defined above) 
+	score_df['pick_value'] = (score_df['improvement'] - score_df['improvement'].mean(skipna=True)) / score_df['improvement'].std(skipna=True)
+	score_df['pick_value'] = score_df['pick_value'] / score_df['pick_value'].max()
 
 def ANOVA(df: pd.DataFrame, group: str, metric: str):
 	"""
