@@ -1,5 +1,6 @@
 
 # general python imports
+import bs4
 import pandas as pd
 from bs4 import BeautifulSoup
 import urllib.request
@@ -22,7 +23,7 @@ from selenium.webdriver.support import expected_conditions as EC
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.INFO)
 
 # Init SQLLite conenction
-conn = sql.connect('2021_Baseball.db')
+conn = sql.connect('2021_Baseball_220301.db')
 
 class waiter():
     def __init__(self) -> None:
@@ -48,10 +49,9 @@ class waiter():
         if n_entries == 33: 
             time.sleep(0.2) 
 
-        if (self.n_entries_consec >=5):
+        if ( self.n_entries_consec >=5 ):
             self.reset()
             return True
-        #print(n_entries,  self.n_entries_consec)
 
     def reset(self):
         self.n_entries_consec = 0
@@ -64,18 +64,33 @@ class waiter():
 # https://www.fangraphs.com/players/max-scherzer/3137/game-log?type=1&gds=&gde=&season=2021&position=P
 
 
-def get_batting_urls(season):
+def get_batting_urls(season: int):
     return get_all_player_urls('bat', season=season)
 
-def get_pitching_urls(season):
+def get_pitching_urls(season: int):
     return get_all_player_urls('pit', season=season)  
+
+def info_to_url(row, season: int, stat_type: str):
+    """
+    Base on the information in this row of the table
+    returns URL to the page containing player stats
+    """
+    specific_player = row.a.text
+    player_dashed = '-'.join(specific_player.split()).replace('.','').replace("'",'').lower()
+    position_str = row.a.get('href').split('&')[-1]
+    player_id = row.a.get('href').split('=')[-2].split('&')[0]
+    if  stat_type == 'bat' and position_str == 'position=P':
+        position_str += 'B' # Get Pitcher's Batting
+    if stat_type != 'bat':
+        position_str = 'position=P'
+    player_url = f"https://www.fangraphs.com/players/{player_dashed}/{player_id}/game-log?type=1&gds=&gde=&season={season}&{position_str}"
+    return player_dashed, player_url
 
 def get_all_player_urls(stat_type: str, season: int):
     """
     Get the batting or pitching 
     URLs for the top 2000 players in season specified (this will be all players)   
     """
-
     # This Table Loads in Plain HTML and is simply read with BS4
     all_players_url = f"https://www.fangraphs.com/leaders.aspx?pos=all&stats={stat_type}&lg=all&qual=0&type=8&season={season}&players&page=1_2000"
     with urllib.request.urlopen(all_players_url) as page:
@@ -88,29 +103,43 @@ def get_all_player_urls(stat_type: str, season: int):
     daily_urls = []
     player_names = []
     for row in table3:
-        specific_player = row.a.text
-        player_dashed = '-'.join(specific_player.split()).replace('.','').replace("'",'').lower()
-        position_str = row.a.get('href').split('&')[-1]
-        player_id = row.a.get('href').split('=')[-2].split('&')[0]
-        if  stat_type == 'bat' and position_str == 'position=P':
-            position_str += 'B' # Get Pitcher's Batting
-        if stat_type != 'bat':
-            position_str = 'position=P'
-        daily_urls.append(f"https://www.fangraphs.com/players/{player_dashed}/{player_id}/game-log?type=1&gds=&gde=&season={season}&{position_str}")
-        player_names.append(player_dashed)
+        player_name, player_url = info_to_url(row=row, season=season, stat_type=stat_type)
+        player_names.append(player_name)
+        daily_urls.append(player_url)
+    
     return daily_urls, player_names
 
-
-def scrape_pitching_data(season, sql_table='pit'):
+def scrape_pitching_data(season, sql_table='pit') -> None:
     return scrape_data(get_pitching_urls, season, sql_table=sql_table)
 
-def scrape_batting_data(season, sql_table='bat'):
+def scrape_batting_data(season, sql_table='bat') -> None:
     return scrape_data(get_batting_urls, season, sql_table=sql_table)  
 
-
-def scrape_data(url_provider, season: int, sql_table: str):
+def get_selenium_table(d: webdriver.Chrome, _waiter: waiter):
     """
-    Scrapes the data from Fan Graphs 
+    Does an X-Path Look up of the ineractice table element
+    """
+    
+    xpath_str = "//div[@id='root-player-pages']//table/thead/tr[2]"
+    try:
+        header = WebDriverWait(d, 10).until(EC.text_to_be_present_in_element((By.XPATH, xpath_str), "Total"))
+    except exceptions.TimeoutException:
+        logging.error('Timed Out')
+        pass
+    # Wait For the Table to Finish Loading
+    table_loaded = False
+    ta = time.time()
+    while not table_loaded:
+        table_loaded = _waiter.table_loaded(d)
+        if time.time() - ta > 10:
+            return None
+    
+    return d.find_element_by_xpath(_waiter.xpath_str)
+
+
+def scrape_data(url_provider, season: int, sql_table: str) -> None:
+    """
+    Scrapes the data from Fan Graphs either adds it to a CSV or SQLLITE Database
     """
 
     chrome_options = Options()
@@ -124,28 +153,10 @@ def scrape_data(url_provider, season: int, sql_table: str):
         t0 = time.time()
 
         d.get(daily_url)
-
-        # Ensures that at least the summary has loaded (contains the only guaranteed to be in a exact location)
-        xpath_str = "//div[@id='root-player-pages']//table/thead/tr[2]"
-        try:
-            header = WebDriverWait(d, 10).until(EC.text_to_be_present_in_element((By.XPATH, xpath_str), "Total"))
-        except exceptions.TimeoutException:
-            logging.warning('Timed out on' + daily_url)
-            pass
-        # Wait For the Table to Finish Loading
-        table_loaded = False
-        ta = time.time()
-        while not table_loaded:
-            table_loaded = _waiter.table_loaded(d)
-            if time.time() - ta > 10:
-                break
-
-        # # This should do the same thing, but is extremely SLOW...
-        # WebDriverWait(d, 10).until(_waiter.table_loaded)
-        # stats_table = d.find_element_by_xpath(_waiter.xpath_str)
         
-        if table_loaded:
-            stats_table = d.find_element_by_xpath(_waiter.xpath_str)
+        stats_table = get_selenium_table(d, _waiter)
+        
+        if stats_table:
             df = pd.read_html(stats_table.get_attribute('outerHTML'), match='Team', skiprows=[1,2], header=0)[0]
             header_mask = df['G'] =='G'
             df = df[np.logical_not(header_mask)]

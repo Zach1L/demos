@@ -1,0 +1,1 @@
+from fangraph import generate_sqllite_tables
