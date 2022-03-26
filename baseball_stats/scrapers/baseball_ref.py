@@ -2,7 +2,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import urllib.request
 import logging
-import downloader
+from . import downloader
 
 def actual_year( year_str:str ) -> bool:
     """
@@ -76,7 +76,7 @@ class BaseBallReferenceScraper( ):
         self.player_urls = []
         self.get_active_players(player_name_ords)
 
-        pitching_df_list,batting_df_list =  downloader.parallel_downloads(self.scrape_player, self.player_urls)
+        pitching_df_list, batting_df_list =  downloader.parallel_downloads(self.scrape_player, self.player_urls)
 
         self.pitching_df_raw = pd.concat(pitching_df_list)
         self.batting_df_raw = pd.concat(batting_df_list)
@@ -151,5 +151,4 @@ class BaseBallReferenceScraper( ):
                 self.batting_df = self.batting_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
             else:
                 self.pitching_df = self.pitching_df_raw[mask].groupby('un_name').agg(dtype_sum_dict)
-
-
+                
