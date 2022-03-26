@@ -21,9 +21,6 @@ from selenium.webdriver.support import expected_conditions as EC
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.INFO)
 
-# Init SQLLite conenction
-conn = sql.connect('2021_Baseball_220301.db')
-
 class waiter():
     def __init__(self) -> None:
         self.n_entries_consec = 0
@@ -62,7 +59,7 @@ class waiter():
 # specific_playerplayers/max-scherzer/3137/stats?position=P
 # https://www.fangraphs.com/players/max-scherzer/3137/game-log?type=1&gds=&gde=&season=2021&position=P
 
-
+        
 def get_batting_urls(season: int):
     return get_all_player_urls('bat', season=season)
 
@@ -108,11 +105,11 @@ def get_all_player_urls(stat_type: str, season: int):
     
     return daily_urls, player_names
 
-def scrape_pitching_data(season, sql_table='pit') -> None:
-    return scrape_data(get_pitching_urls, season, sql_table=sql_table)
+def scrape_pitching_data(season, sql_conn: sql.Connection) -> None:
+    return scrape_data(get_pitching_urls, season, sql_conn=sql_conn, sql_table='pit')
 
-def scrape_batting_data(season, sql_table='bat') -> None:
-    return scrape_data(get_batting_urls, season, sql_table=sql_table)  
+def scrape_batting_data(season, sql_conn: sql.Connection) -> None:
+    return scrape_data(get_batting_urls, season, sql_conn=sql_conn, sql_table='bat')  
 
 def get_selenium_table(d: webdriver.Chrome, _waiter: waiter):
     """
@@ -136,7 +133,7 @@ def get_selenium_table(d: webdriver.Chrome, _waiter: waiter):
     return d.find_element_by_xpath(_waiter.xpath_str)
 
 
-def scrape_data(url_provider, season: int, sql_table: str) -> None:
+def scrape_data(url_provider, season: int, sql_conn: sql.Connection, sql_table: str) -> None:
     """
     Scrapes the data from Fan Graphs either adds it to a CSV or SQLLITE Database
     """
@@ -163,7 +160,7 @@ def scrape_data(url_provider, season: int, sql_table: str) -> None:
             df['id'] = daily_url.split('/')[5]
             # TODO Provide a unique ID for each row in the DB. must account for double header
             if sql_table:    
-                df.to_sql(sql_table, conn, if_exists='append')
+                df.to_sql(sql_table, sql_conn, if_exists='append')
             else:
                 df.to_csv(player_name + '.csv')
         else:
@@ -171,18 +168,20 @@ def scrape_data(url_provider, season: int, sql_table: str) -> None:
 
     d.close()
 
-def generate_sqllite_tables():
-    """
-    Populates the 2021_Baseball.db SQLLITE DB
-    """
-    p1 = multiprocessing.Process(target=scrape_pitching_data, args=(2021, ))
-    p2 = multiprocessing.Process(target=scrape_batting_data, args=(2021, ))
-  
-    p1.start()
-    p2.start()
-  
-    p1.join()
-    p2.join()
+class FangraphScraper():
+    
+    def __init__(self, db_path: str) -> None:
+        self.conn = sql.connect(db_path)
 
-if __name__ == "__main__":
-    generate_sqllite_tables()
+    def generate_sqllite_tables(self) -> None:
+        """
+        Populates the 2021_Baseball.db SQLLITE DB
+        """
+        p1 = multiprocessing.Process(target=scrape_pitching_data, args=(2021, self.conn, ))
+        p2 = multiprocessing.Process(target=scrape_batting_data, args=(2021, self.conn, ))
+    
+        p1.start()
+        p2.start()
+    
+        p1.join()
+        p2.join()

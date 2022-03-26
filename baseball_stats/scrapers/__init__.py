@@ -1,2 +1,2 @@
-from .fangraph import generate_sqllite_tables
+from .fangraph import FangraphScraper
 from .baseball_ref import BaseBallReferenceScraper
