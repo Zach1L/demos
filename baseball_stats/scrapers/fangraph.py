@@ -17,7 +17,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 #https://www.selenium.dev/documentation/webdriver/waits/
 #https://www.selenium.dev/selenium/docs/api/py/webdriver_support/selenium.webdriver.support.expected_conditions.html
-
+from .table_transform import table_transform
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s: %(message)s', level=logging.INFO)
 
@@ -154,10 +154,7 @@ def scrape_data(url_provider, season: int, sql_conn: sql.Connection, sql_table: 
         
         if stats_table:
             df = pd.read_html(stats_table.get_attribute('outerHTML'), match='Team', skiprows=[1,2], header=0)[0]
-            header_mask = df['G'] =='G'
-            df = df[np.logical_not(header_mask)]
-            df['name'] = player_name
-            df['id'] = daily_url.split('/')[5]
+            df = table_transform(raw_df=df, player_name=player_name, daily_url=daily_url, sql_table=sql_table)
             # TODO Provide a unique ID for each row in the DB. must account for double header
             if sql_table:    
                 df.to_sql(sql_table, sql_conn, if_exists='append')
