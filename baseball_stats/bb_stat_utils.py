@@ -1,22 +1,22 @@
 import pandas as pd
 import scipy.stats
 
-def calc_SLUG_TOT(df: pd.DataFrame):
+def calc_SLG_OBP(df: pd.DataFrame):
 	"""
 	Adds slugging percentage related metrics
 	df is a pointer to the dataframe, so it doesnt need to be returned
 	"""
-	df['1B'] = df['H'] - df[['2B','3B','HR']].sum(axis=1)
-	df['SLUG_TOT'] = (df[['1B', '2B','3B','HR']] * [1, 2, 3, 4]).sum(axis=1)
-	df['OB_TOT'] = df[['1B', '2B','3B','HR', 'BB', 'HBP']].sum(axis=1)
+	df['SLG'] = (df[['1B', '2B','3B','HR']] * [1, 2, 3, 4]).sum(axis=1)
+	df['OBP'] = df[['1B', '2B','3B','HR', 'BB', 'HBP']].sum(axis=1)
+	
 
-def calc_WHIP_TOT(df: pd.DataFrame):
+def calc_WH(df: pd.DataFrame):
 	"""
 	Adds Additional pitching metrics
 	df is a pointer to the dataframe, so it doesnt need to be returned
 	"""
 	# Quality starts is not recorded by baseball reference
-	df['WH_TOT'] = df[['BB', 'H']].sum(axis=1)
+	df['WH'] = df[['BB', 'H']].sum(axis=1)
 	df['QS_STAND'] = df['GS'] - df['L']
 	df.loc[df['QS_STAND'] < 0, 'QS_STAND'] = 0
 
