@@ -1,14 +1,14 @@
 import numpy as np
+from abc import ABC, abstractmethod
 
-
-class central_body():
+class CentralBody():
     def __init__(self) -> None:
         omega = (2 * np.pi) / (24 * 60 * 60)  # rad/s
         self.omega = np.array([0, 0, omega], dtype=np.float64)
         self.mu = 3.98600e14
 
 
-class link_physical_properties():
+class LinkPhysicalProperties():
     def __init__(self, unit_length: float, diamter: float,
                  density: float) -> None:
         self.unit_length = unit_length  # l
@@ -18,9 +18,9 @@ class link_physical_properties():
         self.mass = self.unit_length * self.cross_sectional_area * self.density
 
 
-class elevator_element():
+class ElevatorElement(ABC):
 
-    def __init__(self, pos_ECI: np.array, central_body: central_body) -> None:
+    def __init__(self, pos_ECI: np.array, central_body: CentralBody) -> None:
         self.cb = central_body
         self.pos_ECI = pos_ECI
         self.pos_mag = np.linalg.norm(self.pos_ECI)
@@ -42,10 +42,13 @@ class elevator_element():
     def calculate_gravity_force(self, mass: float) -> np.array:
         return - 1 * self.pos_ECI * (self.cb.mu * mass) / (self.pos_mag ** 3)
 
+    @abstractmethod
+    def calculate_tension(self, Tension_Above: float):
+        yield None
 
-class link(elevator_element):
-    def __init__(self, pos_ECI: np.array, central_body: central_body,
-                 n: int, phys_prop: link_physical_properties) -> None:
+class ElevatorLink(ElevatorElement):
+    def __init__(self, pos_ECI: np.array, central_body: CentralBody,
+                 n: int, phys_prop: LinkPhysicalProperties) -> None:
         super().__init__(pos_ECI, central_body)
         self.phys_prop = phys_prop
         self.n = n
@@ -55,9 +58,9 @@ class link(elevator_element):
                              Tension_Above + self.calculate_gravity_force(self.phys_prop.mass))
 
 
-class space_anchor(elevator_element):
+class ElevatorAnchor(ElevatorElement):
     def __init__(self, pos_ECI: np.array,
-                 central_body: central_body, mass: float) -> None:
+                 central_body: CentralBody, mass: float) -> None:
         super().__init__(pos_ECI, central_body)
         self.mass = mass
 
@@ -66,10 +69,10 @@ class space_anchor(elevator_element):
                              self.calculate_gravity_force(self.mass))
 
 
-class space_evelator():
+class SpaceElevator():
 
-    def __init__(self, cable_length: float, phys_prop: link_physical_properties,
-                 anchor_mass: float, cb: central_body = central_body()) -> None:
+    def __init__(self, cable_length: float, phys_prop: LinkPhysicalProperties,
+                 anchor_mass: float, cb: CentralBody = CentralBody()) -> None:
         self.cable_length = cable_length  # From Center of the Earth m
         self.phys_prop = phys_prop   # Element Length m
         self.anchor_mass = anchor_mass  # Mass of Anchor in kg
@@ -89,7 +92,7 @@ class space_evelator():
         for i, dist_from_center_of_cb in enumerate(lengths):
             if i == 0:
                 links.append(
-                    space_anchor(
+                    ElevatorAnchor(
                         np.array([dist_from_center_of_cb, 0, 0],
                                  dtype=np.float64),
                         central_body=self.cb,
@@ -99,7 +102,7 @@ class space_evelator():
                 links[-1].calculate_tension()
             else:
                 links.append(
-                    link(
+                    ElevatorLink(
                         np.array([dist_from_center_of_cb - (-self.phys_prop.unit_length / 2), 0, 0],
                                  dtype=np.float64),
                         central_body=self.cb,
@@ -111,13 +114,18 @@ class space_evelator():
                 self.cable_mass += links[-1].phys_prop.mass
             self.tensions[i, :] = -1 * links[-1].tension
             self.radii[i, :] = links[-1].pos_ECI
-
+    
+    def plot(self, ax_handle) -> None:
+        """
+        TODO define pretty plotting function
+        """
+        pass
 
 if __name__ == "__main__":
-    cb = central_body()
-    pp = link_physical_properties(1, 2, 1)
+    cb = CentralBody()
+    pp = LinkPhysicalProperties(1, 2, 1)
     pos_eci = np.array([6378 * 1000, 0, 0], dtype=np.float64)
-    link1 = link(pos_eci, cb, 0, pp)
+    link1 = ElevatorLink(pos_eci, cb, 0, pp)
     print(
         link1.calculate_gravity_force(
             link1.phys_prop.mass) /
